@@ -2,11 +2,10 @@ name: Promo Bot
 
 on:
   schedule:
-    - cron: '0 12 * * FRI'  # каждый пятница в 12:00 UTC
-  workflow_dispatch:        # возможность ручного запуска
-  push:
-    branches:
-      - main
+    # Каждый Пятница в 12:00 по Москве
+    - cron: "0 9 * * FRI"  # Москва = UTC+3 → 09:00 UTC = 12:00 MSK
+
+  workflow_dispatch:  # ручной запуск
 
 jobs:
   run:
@@ -14,17 +13,20 @@ jobs:
 
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
+      - name: Install deps
+        run: |
+          pip install -r requirements.txt
 
-      - name: Run bot
+      - name: Run Promocode Check CI
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-        run: python3 main.py
+          MODE: CI
+        run: |
+          python3 main.py
