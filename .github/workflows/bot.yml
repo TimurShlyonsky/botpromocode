@@ -1,0 +1,30 @@
+name: Promo Bot
+
+on:
+  schedule:
+    - cron: '0 12 * * FRI'  # каждый пятница в 12:00 UTC
+  workflow_dispatch:        # возможность ручного запуска
+  push:
+    branches:
+      - main
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run bot
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+        run: python3 main.py
