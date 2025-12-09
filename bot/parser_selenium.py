@@ -9,6 +9,7 @@ from urllib.parse import urljoin
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
 from bs4 import BeautifulSoup
 
 
@@ -25,14 +26,14 @@ CODE_REGEX = re.compile(
 
 def init_browser() -> webdriver.Chrome:
     options = Options()
-    options.binary_location = os.getenv("CHROME_PATH")  # Указываем путь к браузеру
-    options.add_argument("--headless")
+    options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--window-size=1920,1080")
     options.add_argument("--disable-gpu")
 
-    service = Service(os.getenv("CHROMEDRIVER_PATH"))  # Указываем драйвер
+    # ChromeDriverManager сам подберёт правильный драйвер под chrome
+    service = Service(ChromeDriverManager().install())
 
     return webdriver.Chrome(service=service, options=options)
 
@@ -46,7 +47,7 @@ def parse_article(url: str) -> List[Dict]:
 
     browser = init_browser()
     browser.get(url)
-    time.sleep(3)
+    time.sleep(4)  # даём JS полностью прогрузиться
 
     soup = BeautifulSoup(browser.page_source, "html.parser")
     browser.quit()
@@ -68,7 +69,7 @@ def parse_article(url: str) -> List[Dict]:
             "title": title,
             "url": url,
             "date": date,
-            "found_in": "selenium-rendered"
+            "found_in": "selenium-text"
         })
 
     return result
@@ -79,12 +80,11 @@ def get_promo_codes() -> List[Dict]:
 
     browser = init_browser()
     browser.get(ARCHIVE_URL)
-    time.sleep(5)
+    time.sleep(6)  # ждём загрузку всех статей JS
 
     soup = BeautifulSoup(browser.page_source, "html.parser")
     browser.quit()
 
-    # Ищем ссылки на статьи по паттерну страниц новостей
     urls = []
     for a in soup.find_all("a", href=True):
         href = a["href"]
@@ -92,11 +92,12 @@ def get_promo_codes() -> List[Dict]:
             urls.append(urljoin(BASE_URL, href))
 
     urls = list(set(urls))
-    logger.info(f"Found {len(urls)} articles")
+    logger.info(f"📰 Found {len(urls)} articles in archive")
 
     for url in urls:
         found = parse_article(url)
         promos.extend(found)
 
+    # уникальность по коду
     unique = {item["code"]: item for item in promos}
     return list(unique.values())
