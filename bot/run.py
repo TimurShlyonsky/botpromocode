@@ -1,5 +1,5 @@
 import os
-from .parser import get_promo_codes
+from .parser_selenium import get_promo_codes   # ← новый импорт!
 from .send import send
 from .storage import load_codes, save_codes
 
