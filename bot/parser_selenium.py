@@ -16,7 +16,7 @@ BASE_URL = "https://www.lotro.com"
 
 logger = logging.getLogger(__name__)
 
-# Ищем фразы вида "Coupon Code: ANDIRUN"
+# Ищем: "COUPON CODE: ANDIRUN" или "Coupon Code: ANDIRUN"
 CODE_REGEX = re.compile(
     r"(?:COUPON|Coupon)\s*CODE[:\s]+([A-Z0-9\s\-]{4,40})",
     re.I
@@ -38,14 +38,18 @@ def init_browser() -> webdriver.Chrome:
 def extract_codes(text: str) -> List[str]:
     codes: List[str] = []
     for m in CODE_REGEX.finditer(text):
-        raw = m.group(1).strip()
-        # Берём только первое "слово" после метки (до пробела/переноса)
-        first_token = raw.split()[0]
-        # Оставляем только допустимые символы
-        code = re.sub(r"[^A-Z0-9\-]", "", first_token.upper())
+        raw = m.group(1).strip().upper()
+
+        # Берём только допустимые символы до первого "лишнего"
+        m2 = re.match(r"([A-Z0-9\-]+)", raw)
+        if not m2:
+            continue
+
+        code = m2.group(1)
+
         if 4 <= len(code) <= 20:
             codes.append(code)
-    # Убираем дубликаты
+
     return list(set(codes))
 
 
@@ -54,7 +58,7 @@ def parse_article(url: str) -> List[Dict]:
 
     browser = init_browser()
     browser.get(url)
-    time.sleep(4)  # ждём, пока выполнится JS
+    time.sleep(4)
 
     soup = BeautifulSoup(browser.page_source, "html.parser")
     browser.quit()
@@ -76,7 +80,7 @@ def parse_article(url: str) -> List[Dict]:
             "title": title,
             "url": url,
             "date": date,
-            "found_in": "selenium-text",
+            "found_in": "selenium-text"
         })
 
     return result
@@ -86,7 +90,6 @@ def get_archive_url_for_current_month() -> str:
     now = datetime.utcnow()
     year = now.year
     month = now.month
-    # Архив вида /archive/2025/12
     return f"{BASE_URL}/archive/{year}/{month:02d}"
 
 
@@ -98,7 +101,7 @@ def get_promo_codes() -> List[Dict]:
 
     browser = init_browser()
     browser.get(archive_url)
-    time.sleep(6)  # ждём загрузку JS и списка статей
+    time.sleep(6)
 
     soup = BeautifulSoup(browser.page_source, "html.parser")
     browser.quit()
@@ -110,11 +113,12 @@ def get_promo_codes() -> List[Dict]:
             urls.append(urljoin(BASE_URL, href))
 
     urls = list(set(urls))
-    logger.info(f"📰 Found {len(urls)} articles in archive page {archive_url}")
+    logger.info(f"📰 Found {len(urls)} articles")
 
     for url in urls:
         found = parse_article(url)
         promos.extend(found)
 
+    # Убираем дубликаты по коду
     unique = {item["code"]: item for item in promos}
     return list(unique.values())
