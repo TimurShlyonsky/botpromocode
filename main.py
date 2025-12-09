@@ -2,192 +2,218 @@ import os
 import re
 import json
 import logging
-import requests
 from datetime import datetime
-from telegram import Bot
-from telegram.ext import (
-    Application, CommandHandler
-)
-from telegram.constants import ParseMode
+import requests
 from bs4 import BeautifulSoup
 
-# ---------------- CONFIG ---------------- #
+from telegram import Update
+from telegram.ext import Application, CommandHandler, CallbackContext
+from telegram.constants import ParseMode
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "")
-TARGET_CHAT_ID = "-1003385030396"
+# ================= НАСТРОЙКИ =================
+BOT_TOKEN = os.getenv("BOT_TOKEN")  # GitHub Secret
+TARGET_CHAT_ID = -1003385030396    # Твой канал
+TIMEZONE = "Europe/London"         # Автозапуск в пятницу 12:00
 
-LOTRO_TEST_NEWS = "https://www.lotro.com/news/lotro-sales-120425-en"
+HEADERS = {
+    "User-Agent": "Mozilla/5.0",
+    "Accept-Language": "en-US,en;q=0.9",
+}
 
-# Слова, которые считаем мусором
-BLACKLIST = {"UPDATE", "REMINDER", "ONLINE", "DOC", "DOCTYPE"}
+BLACKLIST = {"UPDATE", "REMINDER", "THROUGH"}
+SENT_FILE = "sent_codes.json"
 
-# Файл для запоминания уже отправленных кодов
-SENT_CODES_FILE = "sent_codes.json"
-
-
-# ---------------------------------------- #
-#               ЛОГГЕР
-# ---------------------------------------- #
+# =================================================
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
-    level=logging.INFO,
+    level=logging.INFO
 )
-logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------- #
-#           Утилитарные функции
-# ---------------------------------------- #
 def load_sent_codes():
-    if os.path.exists(SENT_CODES_FILE):
-        try:
-            with open(SENT_CODES_FILE, "r", encoding="utf-8") as f:
-                return set(json.load(f))
-        except:
-            return set()
-    return set()
-
-
-def save_sent_codes(codes):
-    with open(SENT_CODES_FILE, "w", encoding="utf-8") as f:
-        json.dump(list(codes), f, ensure_ascii=False)
-
-
-def find_codes(text):
-    """Ищем слова длиной >= 6, заглавные, без цифр в начале"""
-    candidates = re.findall(r"\b[A-Z0-9]{6,}\b", text)
-    result = []
-    for c in candidates:
-        if c.upper() != c:
-            continue
-        if c in BLACKLIST:
-            continue
-        # отсекаем если состоит только из цифр
-        if c.isdigit():
-            continue
-        result.append(c)
-    return result
-
-
-def analyze_article(url):
     try:
-        resp = requests.get(url, timeout=10)
-        if resp.status_code != 200:
-            return []
-        soup = BeautifulSoup(resp.text, "html.parser")
-        text = soup.get_text(" ", strip=True)
-        codes = find_codes(text)
-        logger.info(f"🧩 Найдено в {url}: {codes}")
-        return codes
-    except Exception as e:
-        logger.error(f"Ошибка при анализе {url}: {e}")
+        with open(SENT_FILE, "r") as f:
+            return set(json.load(f))
+    except:
+        return set()
+
+
+def save_sent_codes(data):
+    with open(SENT_FILE, "w") as f:
+        json.dump(list(data), f)
+
+
+# ================= Получение ссылок на статьи =================
+def fetch_articles_from_archive():
+    now = datetime.utcnow()
+    year = now.year
+    month = now.month
+
+    url = f"https://www.lotro.com/archive/{year}/{month:02d}"
+    logging.info(f"Запрашиваю архив: {url}")
+    resp = requests.get(url, headers=HEADERS)
+
+    if resp.status_code != 200:
+        logging.error(f"Ошибка загрузки архива ({resp.status_code})")
         return []
 
-
-def get_recent_articles():
-    """Берем recentArticles из test news"""
-    try:
-        logger.info("Запрашиваю тестовую новость...")
-        resp = requests.get(LOTRO_TEST_NEWS, timeout=10)
-        logger.info(f"Статус: {resp.status_code}")
-
-        match = re.search(
-            r"recentArticles\s*:\s*(\[[^\]]+\])",
-            resp.text
-        )
-        if not match:
-            logger.warning("❌ JSON recentArticles не найден")
-            return []
-
-        data = json.loads(match.group(1))
-        return [
-            "https://www.lotro.com" + item["url"]
-            for item in data
-        ]
-
-    except Exception as e:
-        logger.error(f"Ошибка загрузки recentArticles: {e}")
+    match = re.search(
+        r"window\.SSG\.archive\.articles\s*=\s*(\[.*?\]);",
+        resp.text,
+        re.S
+    )
+    if not match:
+        logging.warning("JSON window.SSG.archive.articles не найден")
         return []
 
+    articles = json.loads(match.group(1))
 
-async def send_code(bot: Bot, code: str, url: str):
-    text = (
-        f"🎁 Новый промокод LOTRO!\n"
-        f"Код: <b>{code}</b>\n"
-        f"Новость: {url}"
-    )
-    await bot.send_message(
-        TARGET_CHAT_ID,
-        text,
-        parse_mode=ParseMode.HTML,
-        disable_web_page_preview=False,
-    )
+    urls = [
+        f"https://www.lotro.com/news/{a['pageName']}"
+        for a in articles if "pageName" in a
+    ]
+
+    logging.info(f"📄 Найдено статей в архиве: {len(urls)}")
+
+    return urls
 
 
-# ---------------------------------------- #
-#           Основная логика
-# ---------------------------------------- #
-async def check_promos(bot: Bot):
-    logger.info("🔍 Старт проверки LOTRO промокодов...")
+# ================= Поиск промокодов в тексте =================
+def extract_coupon_codes(html):
+    soup = BeautifulSoup(html, "html.parser")
+    body = soup.select_one(".article-body")
+    if not body:
+        return []
 
-    sent_codes = load_sent_codes()
-    found_new = False
+    text = body.get_text(" ", strip=True).upper()
 
-    urls = get_recent_articles()
+    codes = set()
+
+    # Основной вариант
+    matches = re.findall(r"COUPON CODE[:\s]+([A-Z0-9]+)", text)
+    codes.update(matches)
+
+    # Фильтрация мусора
+    codes = {
+        c for c in codes
+        if len(c) >= 6 and c not in BLACKLIST
+    }
+
+    return sorted(codes)
+
+
+# ================= Основная функция проверки =================
+def check_lotro_news():
+    logging.info("🔍 Старт проверки LOTRO промокодов...")
+
+    urls = fetch_articles_from_archive()
     if not urls:
-        logger.warning("Новостей не найдено")
-        await bot.send_message(
-            TARGET_CHAT_ID,
-            "ℹ️ Новостей не найдено.",
-        )
-        return
+        return [], "❌ Не удалось получить список новостей"
 
-    logger.info(f"📄 URLs: {len(urls)}")
+    sent = load_sent_codes()
+    new_found = []
 
     for url in urls:
-        codes = analyze_article(url)
+        resp = requests.get(url, headers=HEADERS)
+        if resp.status_code != 200:
+            continue
+
+        codes = extract_coupon_codes(resp.text)
+        if not codes:
+            logging.info(f"… нет промокодов → {url}")
+            continue
+
+        logging.info(f"🧩 Найдено в {url}: {codes}")
+
         for code in codes:
-            if code not in sent_codes:
-                sent_codes.add(code)
-                found_new = True
-                await send_code(bot, code, url)
+            if code not in sent:
+                sent.add(code)
+                new_found.append((code, url))
+                logging.info(f"🔥 Новый промокод: {code}")
 
-    save_sent_codes(sent_codes)
+    save_sent_codes(sent)
 
-    if not found_new:
-        await bot.send_message(
-            TARGET_CHAT_ID,
-            "ℹ️ Новых промокодов LOTRO не найдено."
+    return new_found, None
+
+
+# ================= Handlers =================
+async def cmd_check(update: Update, context: CallbackContext):
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text="🕵️ Проверяю новости LOTRO на промокоды..."
+    )
+
+    new_codes, err = check_lotro_news()
+
+    if err:
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=err)
+        return
+
+    if not new_codes:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="ℹ️ Новых промокодов LOTRO не найдено."
+        )
+        return
+
+    for code, url in new_codes:
+        msg = f"🎁 Новый промокод LOTRO!\nКод: <b>{code}</b>\n{url}"
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=msg,
+            parse_mode=ParseMode.HTML
         )
 
 
-# ---------------------------------------- #
-#          Telegram handlers
-# ---------------------------------------- #
-async def cmd_check(update, context):
-    await update.message.reply_text("🕵️ Проверяю новости LOTRO на промокоды...")
-    await check_promos(context.bot)
+# ================= Автозапуск по расписанию =================
+async def auto_check(context: CallbackContext):
+    new_codes, _ = check_lotro_news()
 
-
-# ---------------------------------------- #
-#                MAIN
-# ---------------------------------------- #
-def main():
-    mode = os.getenv("MODE", "BOT")  # BOT / CI
-    bot = Bot(BOT_TOKEN)
-
-    if mode == "CI":
-        # Single run mode
-        logger.info("🚀 MODE=CI → разовая проверка")
-        import asyncio
-        asyncio.run(check_promos(bot))
+    if not new_codes:
+        await context.bot.send_message(
+            chat_id=TARGET_CHAT_ID,
+            text="ℹ️ Новых промокодов LOTRO сегодня нет."
+        )
         return
 
-    # BOT poll mode
-    application = Application.builder().token(BOT_TOKEN).build()
+    for code, url in new_codes:
+        msg = f"🎁 Новый промокод LOTRO!\nКод: <b>{code}</b>\n{url}"
+        await context.bot.send_message(
+            chat_id=TARGET_CHAT_ID,
+            text=msg,
+            parse_mode=ParseMode.HTML
+        )
+
+
+# ================= Старт бота =================
+def main():
+    if not BOT_TOKEN:
+        logging.error("❌ Нет BOT_TOKEN в GitHub Secrets!")
+        return
+
+    application = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .build()
+    )
+
+    # Команда вручную
     application.add_handler(CommandHandler("check_lotro", cmd_check))
 
-    logger.info("🤖 Бот запущен и ожидает команды /check_lotro")
+    # Автопроверка каждую пятницу в 12:00 (Europe/London)
+    job_queue = application.job_queue
+    job_queue.run_daily(
+        auto_check,
+        time=datetime.time(hour=12, minute=0),
+        days=(4,),  # Friday
+        name="lotro_auto_check",
+        timezone=TIMEZONE,
+    )
+
+    logging.info("🤖 Бот запущен!")
+    logging.info("⏰ Автопроверка: Пятница 12:00 (Europe/London)")
+    logging.info("💬 Команда ручной проверки: /check_lotro")
+
     application.run_polling()
 
 
