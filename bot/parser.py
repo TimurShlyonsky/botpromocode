@@ -1,7 +1,6 @@
 import re
 import json
 import requests
-from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 from datetime import datetime
 
@@ -15,8 +14,8 @@ HEADERS = {
 
 def get_month_news(year: int, month: int) -> list[str]:
     """
-    Загружает страницу архива месяца и возвращает ссылки только на новости,
-    опубликованные в нужном месяце и году.
+    Парсим JSON внутри HTML: window.SSG.archive.articles
+    и берём только статьи нужного месяца и года
     """
     url = f"{BASE_URL}/archive/{year}/{month:02d}"
     print(f"📂 Архив: {url}")
@@ -25,78 +24,75 @@ def get_month_news(year: int, month: int) -> list[str]:
         res = requests.get(url, timeout=20, headers=HEADERS)
         res.raise_for_status()
     except Exception as e:
-        print(f"❌ Archive fetch failed: {e}")
+        print(f"❌ Archive error: {e}")
         return []
 
-    soup = BeautifulSoup(res.text, "html.parser")
+    match = re.search(
+        r"window\.SSG\.archive\.articles\s*=\s*(\[[^\]]*\])",
+        res.text,
+        flags=re.S,
+    )
+    if not match:
+        print("❌ JSON archive not found")
+        return []
 
-    articles = soup.select("article.archive-item")
-    print(f"🔎 На странице найдено статей: {len(articles)}")
+    try:
+        articles = json.loads(match.group(1))
+    except:
+        print("❌ JSON parse failed")
+        return []
 
-    links = []
+    print(f"🔗 Всего статей в JSON: {len(articles)}")
 
+    result = []
     for art in articles:
-        date_el = art.select_one(".metadata__date")
-        a_tag = art.select_one("a[href]")
-        if not a_tag:
+        link = art.get("link")
+        date_str = art.get("date")
+
+        if not link or not date_str:
             continue
 
-        href = a_tag["href"]
-        full_url = urljoin(BASE_URL, href)
-
-        # Если даты нет — пропускаем
-        if not date_el:
-            continue
-
-        date_text = date_el.get_text(strip=True)
-
-        # Пример формата: "Dec 4th, 2025"
         try:
-            dt = datetime.strptime(date_text, "%b %dth, %Y")
+            dt = datetime.strptime(date_str, "%Y-%m-%d")
         except:
             continue
 
         if dt.year == year and dt.month == month:
-            links.append(full_url)
+            full = urljoin(BASE_URL, link)
+            result.append(full)
 
-    print(f"🎯 Ссылок за месяц: {len(links)}")
-    return sorted(set(links))
+    print(f"🎯 Статей за месяц: {len(result)}")
+    return sorted(set(result))
 
 
 def extract_promo_from_news(url: str) -> list[dict]:
     """
-    Загружает новость и ищет промокоды в тексте.
-    Возвращает список объектов: {"code", "title", "url"}
+    Ищем промокоды внутри статьи
     """
     try:
         res = requests.get(url, timeout=20, headers=HEADERS)
         res.raise_for_status()
     except Exception as e:
-        print(f"❌ News fetch failed {url}: {e}")
+        print(f"❌ Load failed {url}: {e}")
         return []
 
-    soup = BeautifulSoup(res.text, "html.parser")
+    # Название новости
+    title_match = re.search(r"<h1[^>]*>(.*?)</h1>", res.text, flags=re.S)
+    title = (
+        re.sub(r"<.*?>", "", title_match.group(1)).strip()
+        if title_match else "Promo"
+    )
 
-    title = soup.select_one("h1")
-    title_text = title.get_text(strip=True) if title else "Promo"
+    # Ищем по всем вариантам COUPON CODE
+    codes = re.findall(r"COUPON CODE[:\s]+([A-Z0-9]+)", res.text, flags=re.I)
 
-    body = soup.select_one(".article-body")
-    if not body:
-        return []
-
-    text = body.get_text(" ", strip=True)
-    text_upper = text.upper()
-
-    # Наиболее надёжный паттерн: COUPON CODE: XXXXXXX
-    matches = re.findall(r"COUPON CODE[:\s]+([A-Z0-9]+)", text_upper)
-
-    results = []
-    for code in set(matches):
+    result = []
+    for code in set(codes):
         if len(code) >= 6:
-            results.append({
+            result.append({
                 "code": code,
-                "title": title_text,
+                "title": title,
                 "url": url
             })
 
-    return results
+    return result
