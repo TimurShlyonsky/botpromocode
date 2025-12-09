@@ -1,125 +1,89 @@
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
-import json
 import re
+import json
 
 BASE_URL = "https://www.lotro.com"
+HEADERS = {
+    "User-Agent": "Mozilla/5.0",
+    "Accept-Language": "en-US,en;q=0.9",
+}
 
-# Слова, которые выглядят как коды, но не являются ими
-BLACKLIST = {"CODE", "FREE", "HAS", "IS", "OF", "FOR", "CAN", "WILL", "THROUGH"}
+# Слова, которые НЕ могут быть промокодами
+BLACKLIST = {"IS", "OF", "IN", "CODE", "THROUGH", "FOR", "HAS", "WILL"}
 
-
-def is_valid_code(code: str) -> bool:
-    """Фильтруем ложные срабатывания."""
-    if len(code) < 6:
-        return False
-    if code in BLACKLIST:
-        return False
-    if not re.match(r"^[A-Z0-9]+$", code):
-        return False
-    return True
+# Паттерны поиска
+PATTERNS = [
+    r"Coupon Code[:\s]+([A-Z0-9]{5,})",
+    r"Use Code[:\s]+([A-Z0-9]{5,})",
+    r"Use coupon code[:\s]+([A-Z0-9]{5,})",
+    r"CODE[:\s]+([A-Z0-9]{5,})",
+]
 
 
 def get_month_news(year: int, month: int) -> list[str]:
     url = f"{BASE_URL}/archive/{year}/{month:02d}"
-    print(f"📂 Архив: {url}")
+    print(f"🔎 Fetching archive: {url}")
 
     try:
-        response = requests.get(url, timeout=20)
-        response.raise_for_status()
-    except Exception:
+        resp = requests.get(url, headers=HEADERS, timeout=20)
+        resp.raise_for_status()
+    except:
+        print("❌ Ошибка загрузки архива")
         return []
 
-    text = response.text
-
-    # JSON news list
-    match = re.search(r"window\.SSG\.archive\.articles\s*=\s*(\[[\s\S]*?\]);",
-                      text)
+    # Ищем JSON с новостями
+    match = re.search(r"window\.SSG\.archive\.articles\s*=\s*(\[.*?\]);",
+                      resp.text, re.S)
     if not match:
-        print("⚠️ JSON не найден")
+        print("⚠️ JSON архива не найден")
         return []
 
-    try:
-        entries = json.loads(match.group(1))
-    except Exception:
-        print("⚠️ JSON parse error")
-        return []
+    articles = json.loads(match.group(1))
 
-    links = set()
-    for e in entries:
-        href = e.get("url") or e.get("pageName")
-        if not href:
-            continue
-        if not href.startswith("/"):
-            href = "/" + href
-        if "/news/" not in href:
-            href = "/news" + href
-        links.add(urljoin(BASE_URL, href))
+    urls = []
+    for a in articles:
+        if "pageName" in a:
+            urls.append(urljoin(BASE_URL, f"/news/{a['pageName']}"))
 
-    print(f"🔗 Найдено ссылок: {len(links)}")
-    return sorted(links)
+    print(f"🔗 Найдено ссылок: {len(urls)}")
+    return urls
 
 
 def extract_promo_from_news(url: str):
-    """Ищем реальные промокоды в теле статьи."""
     try:
-        res = requests.get(url, timeout=20)
-        res.raise_for_status()
-    except Exception:
+        resp = requests.get(url, headers=HEADERS, timeout=20)
+        resp.raise_for_status()
+    except:
+        print(f"⚠️ Пропуск (404?): {url}")
         return []
 
-    soup = BeautifulSoup(res.text, "html.parser")
+    soup = BeautifulSoup(resp.text, "html.parser")
+    title = soup.title.get_text(strip=True) if soup.title else "LOTRO News"
 
-    # Только содержимое самой статьи
     body = soup.select_one(".article-body")
     if not body:
         return []
 
     text = body.get_text(" ", strip=True)
-    text_u = text.upper()
+    text = re.sub(r"\s+", " ", text)
+    text_up = text.upper()
 
-    promos = []
+    found = set()
 
-    # Выдёргиваем вариант "Coupon Code: XXX"
-    for m in re.finditer(r"(COUPON CODE|USE CODE|PROMO CODE)[:\s]+([A-Z0-9]+)", text_u):
-        code = m.group(2).strip().upper()
+    for pattern in PATTERNS:
+        matches = re.findall(pattern, text_up)
+        for m in matches:
+            if len(m) >= 5 and m not in BLACKLIST:
+                found.add(m)
 
-        if not is_valid_code(code):
-            continue
-
-        # Пытаемся найти описание рядом (до 200 символов)
-        desc = extract_description(text, code)
-
-        promos.append({
+    results = []
+    for code in sorted(found):
+        results.append({
             "code": code,
-            "description": desc,
-            "url": url
+            "url": url,
+            "title": title
         })
 
-    return promos
-
-
-def extract_description(full_text: str, code: str) -> str | None:
-    """Описание — 100 символов до и после найденного кода."""
-    pos = full_text.upper().find(code)
-    if pos == -1:
-        return None
-
-    start = max(0, pos - 100)
-    end = min(len(full_text), pos + len(code) + 100)
-    snippet = full_text[start:end]
-
-    # Мини-фильтр описания
-    if len(snippet) < 20:
-        return None
-
-    if any(key in snippet.upper() for key in ["FREE", "%", "BOOST", "XP"]):
-        return " ".join(snippet.split())
-
-    return None
-
-
-if __name__ == "__main__":
-    for url in get_month_news(2025, 12):
-        print(extract_promo_from_news(url))
+    return results
