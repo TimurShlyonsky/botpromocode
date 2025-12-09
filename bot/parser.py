@@ -1,102 +1,102 @@
-import requests
-import json
 import re
+import json
+import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 from datetime import datetime
 
 BASE_URL = "https://www.lotro.com"
+
 HEADERS = {
     "User-Agent": "Mozilla/5.0",
     "Accept-Language": "en-US,en;q=0.9",
 }
 
-# ❗ Регулярка для вылавливания JSON со статьями
-ARCHIVE_JSON_RE = re.compile(
-    r"window\.SSG\.archive\.articles\s*=\s*(\[.*?\]);",
-    re.S
-)
 
-
-def get_month_news(year: int, month: int) -> list[dict]:
+def get_month_news(year: int, month: int) -> list[str]:
     """
-    Загружает архив месяца и возвращает список статей строго из этого месяца:
-    [
-        {"url": "...", "title": "..."}
-    ]
+    Загружает страницу архива месяца и возвращает ссылки только на новости,
+    опубликованные в нужном месяце и году.
     """
     url = f"{BASE_URL}/archive/{year}/{month:02d}"
     print(f"📂 Архив: {url}")
 
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=20)
-        resp.raise_for_status()
+        res = requests.get(url, timeout=20, headers=HEADERS)
+        res.raise_for_status()
     except Exception as e:
-        print(f"❌ Failed to load archive: {e}")
+        print(f"❌ Archive fetch failed: {e}")
         return []
 
-    match = ARCHIVE_JSON_RE.search(resp.text)
-    if not match:
-        print("⚠️ No JSON found in archive page!")
-        return []
+    soup = BeautifulSoup(res.text, "html.parser")
 
-    articles = json.loads(match.group(1))
-    print(f"🔗 Всего статей в JSON: {len(articles)}")
+    articles = soup.select("article.archive-item")
+    print(f"🔎 На странице найдено статей: {len(articles)}")
 
-    filtered = []
-    for a in articles:
-        date_str = a.get("publishDate")
-        if not date_str:
+    links = []
+
+    for art in articles:
+        date_el = art.select_one(".metadata__date")
+        a_tag = art.select_one("a[href]")
+        if not a_tag:
             continue
 
-        # Например: "2025-12-04T12:00:00.000Z"
+        href = a_tag["href"]
+        full_url = urljoin(BASE_URL, href)
+
+        # Если даты нет — пропускаем
+        if not date_el:
+            continue
+
+        date_text = date_el.get_text(strip=True)
+
+        # Пример формата: "Dec 4th, 2025"
         try:
-            dt = datetime.strptime(date_str[:10], "%Y-%m-%d")
+            dt = datetime.strptime(date_text, "%b %dth, %Y")
         except:
             continue
 
-        # ⚠️ ФИЛЬТРУЕМ СТРОГО ПО МЕСЯЦУ
         if dt.year == year and dt.month == month:
-            page = a.get("pageName")
-            if page:
-                filtered.append({
-                    "url": f"{BASE_URL}/news/{page}",
-                    "title": a.get("title", "No title")
-                })
+            links.append(full_url)
 
-    print(f"🎯 Статей за месяц: {len(filtered)}")
-    return filtered
-
-
-PROMO_RE = re.compile(r"(?:coupon code|use code|use coupon code)[:\s]+([A-Z0-9]+)",
-                      re.IGNORECASE)
+    print(f"🎯 Ссылок за месяц: {len(links)}")
+    return sorted(set(links))
 
 
 def extract_promo_from_news(url: str) -> list[dict]:
-    """Ищем промокоды внутри статьи"""
+    """
+    Загружает новость и ищет промокоды в тексте.
+    Возвращает список объектов: {"code", "title", "url"}
+    """
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=20)
-        resp.raise_for_status()
+        res = requests.get(url, timeout=20, headers=HEADERS)
+        res.raise_for_status()
     except Exception as e:
-        print(f"❌ Failed to load page: {url} | {e}")
+        print(f"❌ News fetch failed {url}: {e}")
         return []
 
-    soup = BeautifulSoup(resp.text, "html.parser")
+    soup = BeautifulSoup(res.text, "html.parser")
+
+    title = soup.select_one("h1")
+    title_text = title.get_text(strip=True) if title else "Promo"
+
     body = soup.select_one(".article-body")
     if not body:
         return []
 
     text = body.get_text(" ", strip=True)
+    text_upper = text.upper()
 
-    found = []
-    for code in set(PROMO_RE.findall(text)):
-        # Фильтр ненужных совпадений (коротких, общих слов)
-        if len(code) < 5:
-            continue
+    # Наиболее надёжный паттерн: COUPON CODE: XXXXXXX
+    matches = re.findall(r"COUPON CODE[:\s]+([A-Z0-9]+)", text_upper)
 
-        found.append({
-            "code": code.upper(),
-            "url": url
-        })
+    results = []
+    for code in set(matches):
+        if len(code) >= 6:
+            results.append({
+                "code": code,
+                "title": title_text,
+                "url": url
+            })
 
-    return found
+    return results
