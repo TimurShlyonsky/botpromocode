@@ -1,89 +1,88 @@
+import re
+import json
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
-import re
-import json
 
 BASE_URL = "https://www.lotro.com"
 HEADERS = {
     "User-Agent": "Mozilla/5.0",
-    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Language": "en-US,en;q=0.9"
 }
 
-# Слова, которые НЕ могут быть промокодами
-BLACKLIST = {"IS", "OF", "IN", "CODE", "THROUGH", "FOR", "HAS", "WILL"}
+# Слова, которые НЕ могут быть кодами
+BAD_CODES = {"OF", "IS", "HAS", "CODE", "FREE", "THROUGH", "FOR"}
 
-# Паттерны поиска
-PATTERNS = [
-    r"Coupon Code[:\s]+([A-Z0-9]{5,})",
-    r"Use Code[:\s]+([A-Z0-9]{5,})",
-    r"Use coupon code[:\s]+([A-Z0-9]{5,})",
-    r"CODE[:\s]+([A-Z0-9]{5,})",
-]
+# Минимальная длина кода
+MIN_LEN = 6
 
 
 def get_month_news(year: int, month: int) -> list[str]:
     url = f"{BASE_URL}/archive/{year}/{month:02d}"
-    print(f"🔎 Fetching archive: {url}")
+    print(f"📂 Архив: {url}")
 
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=20)
-        resp.raise_for_status()
-    except:
-        print("❌ Ошибка загрузки архива")
+        page = requests.get(url, headers=HEADERS, timeout=15)
+        page.raise_for_status()
+    except Exception:
         return []
 
-    # Ищем JSON с новостями
-    match = re.search(r"window\.SSG\.archive\.articles\s*=\s*(\[.*?\]);",
-                      resp.text, re.S)
+    # JSON внутри window.SSG.archive.articles = [...]
+    match = re.search(
+        r"window\.SSG\.archive\.articles\s*=\s*(\[.*?\]);",
+        page.text, re.S
+    )
     if not match:
-        print("⚠️ JSON архива не найден")
+        print("⚠️ JSON архив не найден!")
         return []
 
     articles = json.loads(match.group(1))
 
-    urls = []
-    for a in articles:
-        if "pageName" in a:
-            urls.append(urljoin(BASE_URL, f"/news/{a['pageName']}"))
+    links = [
+        urljoin(BASE_URL, a["slug"])
+        for a in articles
+        if a.get("slug", "").startswith("/news/")
+    ]
 
-    print(f"🔗 Найдено ссылок: {len(urls)}")
-    return urls
+    print(f"🔗 Найдено ссылок: {len(links)}")
+    return links
 
 
 def extract_promo_from_news(url: str):
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=20)
-        resp.raise_for_status()
-    except:
-        print(f"⚠️ Пропуск (404?): {url}")
+        res = requests.get(url, headers=HEADERS, timeout=20)
+        res.raise_for_status()
+    except Exception:
         return []
 
-    soup = BeautifulSoup(resp.text, "html.parser")
+    soup = BeautifulSoup(res.text, "html.parser")
+
+    # title статьи
     title = soup.title.get_text(strip=True) if soup.title else "LOTRO News"
 
+    # Текст новости
     body = soup.select_one(".article-body")
     if not body:
         return []
 
     text = body.get_text(" ", strip=True)
-    text = re.sub(r"\s+", " ", text)
-    text_up = text.upper()
+    text_upper = text.upper()
 
-    found = set()
+    # Ищем коды
+    codes = re.findall(r"COUPON\s+CODE[:\s]+([A-Z0-9]+)", text_upper)
 
-    for pattern in PATTERNS:
-        matches = re.findall(pattern, text_up)
-        for m in matches:
-            if len(m) >= 5 and m not in BLACKLIST:
-                found.add(m)
-
-    results = []
-    for code in sorted(found):
-        results.append({
-            "code": code,
+    # Фильтруем
+    clean = []
+    for c in codes:
+        if len(c) < MIN_LEN:
+            continue
+        if c in BAD_CODES:
+            continue
+        clean.append({
+            "code": c,
             "url": url,
-            "title": title
+            "title": title,
+            "description": None
         })
 
-    return results
+    return clean
