@@ -1,34 +1,25 @@
 import os
 import requests
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+TOKEN = os.getenv("BOT_TOKEN")
+CHAT = os.getenv("TELEGRAM_CHAT_ID")
+
+API_URL = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 
 
-def send_promo(code: str, description: str | None, url: str):
-    """Отправляем сообщение в Telegram канал."""
-    if not BOT_TOKEN or not CHAT_ID:
-        print("⚠️ BOT_TOKEN or TELEGRAM_CHAT_ID is not set!")
+def send_message(text: str):
+    if not TOKEN or not CHAT:
+        print("🤖 Telegram not configured — skip sending")
         return
 
-    text_lines = [
-        "🎁 *Новый промокод LOTRO!*",
-        f"*Код:* `{code}`"
-    ]
+    payload = {
+        "chat_id": CHAT,
+        "text": text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True
+    }
 
-    if description:
-        text_lines.append(f"_Что даёт_:* {description}")
-
-    text_lines.append(url)
-
-    message = "\n".join(text_lines)
-
-    requests.post(
-        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-        data={
-            "chat_id": CHAT_ID,
-            "text": message,
-            "parse_mode": "Markdown"
-        }
-    )
-
+    try:
+        requests.post(API_URL, json=payload, timeout=10)
+    except Exception as e:
+        print("❌ Telegram send failed:", e)
