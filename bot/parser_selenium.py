@@ -1,3 +1,4 @@
+import os
 import time
 import re
 import json
@@ -7,7 +8,7 @@ from urllib.parse import urljoin
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.service import Service
 from bs4 import BeautifulSoup
 
 
@@ -24,13 +25,16 @@ CODE_REGEX = re.compile(
 
 def init_browser() -> webdriver.Chrome:
     options = Options()
+    options.binary_location = os.getenv("CHROME_PATH")  # Указываем путь к браузеру
     options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--window-size=1920,1080")
     options.add_argument("--disable-gpu")
 
-    return webdriver.Chrome(options=options)
+    service = Service(os.getenv("CHROMEDRIVER_PATH"))  # Указываем драйвер
+
+    return webdriver.Chrome(service=service, options=options)
 
 
 def extract_codes(text: str) -> List[str]:
@@ -80,7 +84,7 @@ def get_promo_codes() -> List[Dict]:
     soup = BeautifulSoup(browser.page_source, "html.parser")
     browser.quit()
 
-    # Все ссылки на статьи
+    # Ищем ссылки на статьи по паттерну страниц новостей
     urls = []
     for a in soup.find_all("a", href=True):
         href = a["href"]
@@ -91,9 +95,8 @@ def get_promo_codes() -> List[Dict]:
     logger.info(f"Found {len(urls)} articles")
 
     for url in urls:
-        codes = parse_article(url)
-        promos.extend(codes)
+        found = parse_article(url)
+        promos.extend(found)
 
-    # Убираем дубликаты по коду
     unique = {item["code"]: item for item in promos}
     return list(unique.values())
