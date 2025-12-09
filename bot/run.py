@@ -1,68 +1,58 @@
-import json
+import datetime
 from bot.parser import get_month_news, extract_promo_from_news
+from bot.storage import load_codes, save_codes
+from telegram import Bot
+import os
 
-DATA_FILE = "data/promo_codes.json"
-
-
-def load_codes():
-    """
-    Загружаем уже найденные коды.
-    Поддерживаем два формата:
-    1) ["ANDIRUN", "EXPLOREOURWORLD", ...]       # старый формат (список строк)
-    2) [{"code": "...", "description": "...", ..} # новый формат (список объектов)
-    """
-    try:
-        with open(DATA_FILE, "r") as f:
-            data = json.load(f)
-    except Exception:
-        return []
-
-    # Новый формат: список словарей с ключом "code"
-    if isinstance(data, list) and all(isinstance(x, dict) and "code" in x for x in data):
-        return data
-
-    # Старый формат: список строк
-    if isinstance(data, list) and all(isinstance(x, str) for x in data):
-        return [{"code": c, "description": None, "url": None} for c in data]
-
-    # Непонятный формат — начинаем с нуля
-    return []
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 
-def save_codes(codes):
-    with open(DATA_FILE, "w") as f:
-        json.dump(codes, f, indent=2, ensure_ascii=False)
+def send(code, title, url):
+    bot = Bot(BOT_TOKEN)
+    bot.send_message(
+        CHAT_ID,
+        (
+            f"✨ Новый промокод: <b>{code}</b>\n"
+            f"📰 <a href=\"{url}\">{title}</a>"
+        ),
+        parse_mode="HTML",
+        disable_web_page_preview=False,
+    )
 
 
 def run():
-    print("🚀 FULL YEAR TEST — 2025")
+    today = datetime.date.today()
+    year, month = today.year, today.month
 
-    all_found = load_codes()
-    print(f"📁 Уже было сохранено кодов: {len(all_found)}")
+    print(f"\n📅 Checking promos for: {year}-{month:02d}")
 
-    codes_set = {item["code"] for item in all_found}
-    new_found = []
+    urls = get_month_news(year, month)
+    if not urls:
+        print("⚠️ Нет новостей")
+        return
 
-    # Проходим по всем месяцам 2025
-    for month in range(1, 13):
-        print(f"\n📅 Месяц: {month:02d}")
-        links = get_month_news(2025, month)
+    stored = load_codes()
+    stored_codes = {x["code"] for x in stored}
 
-        for url in links:
-            promos = extract_promo_from_news(url)
-            for p in promos:
-                code = p["code"]
-                if code not in codes_set:
-                    print(f"✨ CODE: {code} — {p['url']}")
-                    codes_set.add(code)
-                    new_found.append(p)
+    new_items = []
 
-    if new_found:
-        print(f"\n💾 Сохранено новых кодов: {len(new_found)}")
-        all_found.extend(new_found)
-        save_codes(all_found)
+    for url in urls:
+        items = extract_promo_from_news(url)
+        for item in items:
+            if item["code"] not in stored_codes:
+                print(f"✨ NEW: {item['code']} — {url}")
+                stored.append(item)
+                new_items.append(item)
+                stored_codes.add(item["code"])
+
+    if new_items:
+        save_codes(stored)
+        for n in new_items:
+            send(n["code"], n["title"], n["url"])
+        print(f"💾 Saved {len(new_items)} codes")
     else:
-        print("\nℹ️ Новых кодов нет")
+        print("ℹ️ Новых кодов нет")
 
 
 if __name__ == "__main__":
