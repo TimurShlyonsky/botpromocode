@@ -1,0 +1,37 @@
+name: Check LOTRO Promocodes
+
+on:
+  schedule:
+    # Пятница 12:00 Калининград (UTC+2) = 10:00 UTC
+    - cron: "0 10 * * 5"
+  workflow_dispatch: {} # Это нужно для ручного запуска кнопкой
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run LOTRO Promo Checker
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python bot/run.py
+
+      - name: Save updated promo codes
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "actions@github.com"
+          git add data/promo_codes.json
+          git commit -m "Update promo codes" || echo "No changes to commit"
+          git push
