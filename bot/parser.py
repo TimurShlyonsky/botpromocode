@@ -6,152 +6,120 @@ import re
 
 BASE_URL = "https://www.lotro.com"
 
+# Слова, которые выглядят как коды, но не являются ими
+BLACKLIST = {"CODE", "FREE", "HAS", "IS", "OF", "FOR", "CAN", "WILL", "THROUGH"}
+
+
+def is_valid_code(code: str) -> bool:
+    """Фильтруем ложные срабатывания."""
+    if len(code) < 6:
+        return False
+    if code in BLACKLIST:
+        return False
+    if not re.match(r"^[A-Z0-9]+$", code):
+        return False
+    return True
+
 
 def get_month_news(year: int, month: int) -> list[str]:
-    """
-    Загружает архивную страницу месяца и извлекает ссылки на статьи
-    из встроенного JSON (window.SSG.archive.articles или newsEntries).
-    """
     url = f"{BASE_URL}/archive/{year}/{month:02d}"
-    print(f"🔎 Fetching archive: {url}")
+    print(f"📂 Архив: {url}")
 
     try:
         response = requests.get(url, timeout=20)
         response.raise_for_status()
-    except Exception as e:
-        print(f"❌ Failed to load archive page: {e}")
+    except Exception:
         return []
 
     text = response.text
 
-    # 1️⃣ основной способ — современные страницы LOTRO
+    # JSON news list
     match = re.search(r"window\.SSG\.archive\.articles\s*=\s*(\[[\s\S]*?\]);",
                       text)
-    entries = None
+    if not match:
+        print("⚠️ JSON не найден")
+        return []
 
-    if match:
-        try:
-            entries = json.loads(match.group(1))
-            print("✔ Found window.SSG.archive.articles JSON")
-        except Exception as e:
-            print(f"❌ Failed to parse archive.articles JSON: {e}")
-
-    # 2️⃣ fallback — старый формат
-    if not entries:
-        match2 = re.search(r'"newsEntries":\s*(\[[\s\S]*?\])', text)
-        if match2:
-            try:
-                entries = json.loads(match2.group(1))
-                print("✔ Found newsEntries JSON")
-            except Exception as e:
-                print(f"❌ Failed to parse newsEntries JSON: {e}")
-
-    if not entries:
-        print("⚠️ No JSON entries found on archive page.")
+    try:
+        entries = json.loads(match.group(1))
+    except Exception:
+        print("⚠️ JSON parse error")
         return []
 
     links = set()
-    for entry in entries:
-        href = entry.get("url") or entry.get("pageName") or entry.get("link")
+    for e in entries:
+        href = e.get("url") or e.get("pageName")
         if not href:
             continue
-
-        # Убедимся, что начинается с "/"
         if not href.startswith("/"):
             href = "/" + href
-
-        # Если нет "/news/", добавляем
         if "/news/" not in href:
             href = "/news" + href
+        links.add(urljoin(BASE_URL, href))
 
-        full_url = urljoin(BASE_URL, href)
-        links.add(full_url)
-
-    print(f"🔗 Found {len(links)} news links for this month")
-    return sorted(list(links))
+    print(f"🔗 Найдено ссылок: {len(links)}")
+    return sorted(links)
 
 
 def extract_promo_from_news(url: str):
-    """
-    Загружает новость и ищет промокоды.
-    Возвращает список объектов: {"code", "description", "url"}
-    """
+    """Ищем реальные промокоды в теле статьи."""
     try:
         res = requests.get(url, timeout=20)
         res.raise_for_status()
-    except Exception as e:
-        print(f"❌ Failed to load news page: {url} | {e}")
+    except Exception:
         return []
 
     soup = BeautifulSoup(res.text, "html.parser")
 
-    paragraphs = soup.find_all(["p", "div", "span", "li"])
+    # Только содержимое самой статьи
+    body = soup.select_one(".article-body")
+    if not body:
+        return []
 
-    patterns = [
-        r"Coupon Code[: ]+([A-Z0-9]+)",
-        r"Use Code[: ]+([A-Z0-9]+)",
-        r"Use coupon code[: ]+([A-Z0-9]+)",
-        r"Coupon[: ]+([A-Z0-9]+)",
-        r"Code[: ]+([A-Z0-9]+)",
-    ]
+    text = body.get_text(" ", strip=True)
+    text_u = text.upper()
 
-    found = []
+    promos = []
 
-    for i, p in enumerate(paragraphs):
-        text = " ".join(p.get_text(" ", strip=True).split())
-        if not text:
+    # Выдёргиваем вариант "Coupon Code: XXX"
+    for m in re.finditer(r"(COUPON CODE|USE CODE|PROMO CODE)[:\s]+([A-Z0-9]+)", text_u):
+        code = m.group(2).strip().upper()
+
+        if not is_valid_code(code):
             continue
 
-        for pattern in patterns:
-            match = re.search(pattern, text, flags=re.IGNORECASE)
-            if match:
-                code = match.group(1).upper()
-                print(f"✨ Found code {code} in: {url}")
+        # Пытаемся найти описание рядом (до 200 символов)
+        desc = extract_description(text, code)
 
-                description = extract_description_near(paragraphs, i)
+        promos.append({
+            "code": code,
+            "description": desc,
+            "url": url
+        })
 
-                found.append({
-                    "code": code,
-                    "description": description,
-                    "url": url
-                })
-
-    return found
+    return promos
 
 
-def extract_description_near(paragraphs, index: int):
-    """Ищем описание рядом с абзацем, где найден код."""
-    candidates = []
-
-    def add(i):
-        if 0 <= i < len(paragraphs):
-            t = clean_description_text(paragraphs[i].get_text(" ", strip=True))
-            if t:
-                candidates.append(t)
-
-    add(index)      # текущий абзац
-    add(index - 1)  # выше
-    add(index + 1)  # ниже
-
-    return candidates[0] if candidates else None
-
-
-def clean_description_text(text: str):
-    """Оставляем только полезное описание."""
-    if not text or len(text) > 200:
+def extract_description(full_text: str, code: str) -> str | None:
+    """Описание — 100 символов до и после найденного кода."""
+    pos = full_text.upper().find(code)
+    if pos == -1:
         return None
 
-    keywords = ["Free", "%", "off", "Boost", "Bundle", "XP", "Tome", "Item", "Crate"]
+    start = max(0, pos - 100)
+    end = min(len(full_text), pos + len(code) + 100)
+    snippet = full_text[start:end]
 
-    if any(k.lower() in text.lower() for k in keywords):
-        return text
+    # Мини-фильтр описания
+    if len(snippet) < 20:
+        return None
+
+    if any(key in snippet.upper() for key in ["FREE", "%", "BOOST", "XP"]):
+        return " ".join(snippet.split())
+
     return None
 
 
 if __name__ == "__main__":
-    links = get_month_news(2025, 12)
-    print("News links:", links)
-    for link in links:
-        promos = extract_promo_from_news(link)
-        if promos:
-            print("FOUND:", promos)
+    for url in get_month_news(2025, 12):
+        print(extract_promo_from_news(url))
