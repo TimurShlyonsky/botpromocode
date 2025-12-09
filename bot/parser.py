@@ -10,7 +10,7 @@ BASE_URL = "https://www.lotro.com"
 def get_month_news(year: int, month: int) -> list[str]:
     """
     Загружает архивную страницу месяца и извлекает ссылки на статьи
-    из встроенного JSON (newsEntries), т.к. контент подгружается JS.
+    из встроенного JSON (window.SSG.archive.articles или newsEntries).
     """
     url = f"{BASE_URL}/archive/{year}/{month:02d}"
     print(f"🔎 Fetching archive: {url}")
@@ -22,25 +22,45 @@ def get_month_news(year: int, month: int) -> list[str]:
         print(f"❌ Failed to load archive page: {e}")
         return []
 
-    # Ищем JSON массив newsEntries
-    match = re.search(r'"newsEntries":\s*(\[[^\]]*\])', response.text, flags=re.DOTALL)
-    if not match:
-        print("⚠️ No newsEntries found on page.")
-        return []
+    text = response.text
 
-    try:
-        entries = json.loads(match.group(1))
-    except Exception as e:
-        print(f"❌ Failed to parse JSON: {e}")
+    # 1️⃣ основной способ — современные страницы LOTRO
+    match = re.search(r"window\.SSG\.archive\.articles\s*=\s*(\[[\s\S]*?\]);",
+                      text)
+    entries = None
+
+    if match:
+        try:
+            entries = json.loads(match.group(1))
+            print("✔ Found window.SSG.archive.articles JSON")
+        except Exception as e:
+            print(f"❌ Failed to parse archive.articles JSON: {e}")
+
+    # 2️⃣ fallback — старый формат
+    if not entries:
+        match2 = re.search(r'"newsEntries":\s*(\[[\s\S]*?\])', text)
+        if match2:
+            try:
+                entries = json.loads(match2.group(1))
+                print("✔ Found newsEntries JSON")
+            except Exception as e:
+                print(f"❌ Failed to parse newsEntries JSON: {e}")
+
+    if not entries:
+        print("⚠️ No JSON entries found on archive page.")
         return []
 
     links = set()
-
     for entry in entries:
-        href = entry.get("url")
-        if href:
-            full_url = urljoin(BASE_URL, href)
-            links.add(full_url)
+        href = entry.get("url") or entry.get("pageName") or entry.get("link")
+        if not href:
+            continue
+
+        if not href.startswith("/"):
+            href = "/" + href
+
+        full_url = urljoin(BASE_URL, href)
+        links.add(full_url)
 
     print(f"🔗 Found {len(links)} news links for this month")
     return sorted(list(links))
@@ -60,7 +80,6 @@ def extract_promo_from_news(url: str):
 
     soup = BeautifulSoup(res.text, "html.parser")
 
-    # Сбор всех текстовых блоков, где могут быть коды
     paragraphs = soup.find_all(["p", "div", "span", "li"])
 
     patterns = [
@@ -82,6 +101,8 @@ def extract_promo_from_news(url: str):
             match = re.search(pattern, text, flags=re.IGNORECASE)
             if match:
                 code = match.group(1).upper()
+                print(f"✨ Found code {code} in: {url}")
+
                 description = extract_description_near(paragraphs, i)
 
                 found.append({
@@ -94,41 +115,35 @@ def extract_promo_from_news(url: str):
 
 
 def extract_description_near(paragraphs, index: int):
-    """
-    Ищем текст-описание рядом с абзацем кода.
-    """
+    """Ищем описание рядом с абзацем, где найден код."""
     candidates = []
 
-    def add_candidate(i):
+    def add(i):
         if 0 <= i < len(paragraphs):
             t = clean_description_text(paragraphs[i].get_text(" ", strip=True))
             if t:
                 candidates.append(t)
 
-    add_candidate(index)
-    add_candidate(index - 1)
-    add_candidate(index + 1)
+    add(index)      # текущий абзац
+    add(index - 1)  # выше
+    add(index + 1)  # ниже
 
     return candidates[0] if candidates else None
 
 
 def clean_description_text(text: str):
-    """
-    Удаляем шум, оставляем только полезное описание.
-    """
+    """Оставляем только полезное описание."""
     if not text or len(text) > 200:
         return None
 
-    keywords = ["Free", "%", "off", "Boost", "Bundle", "XP", "Tome", "Item"]
+    keywords = ["Free", "%", "off", "Boost", "Bundle", "XP", "Tome", "Item", "Crate"]
 
-    if any(key.lower() in text.lower() for key in keywords):
+    if any(k.lower() in text.lower() for k in keywords):
         return text
-
     return None
 
 
 if __name__ == "__main__":
-    # Тест локального запуска – можно менять дату
     links = get_month_news(2025, 12)
     print("News links:", links)
     for link in links:
