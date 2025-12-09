@@ -1,10 +1,9 @@
-import os
 import time
 import re
-import json
 import logging
 from typing import List, Dict
 from urllib.parse import urljoin
+from datetime import datetime
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -14,12 +13,12 @@ from bs4 import BeautifulSoup
 
 
 BASE_URL = "https://www.lotro.com"
-ARCHIVE_URL = urljoin(BASE_URL, "/archive")
 
 logger = logging.getLogger(__name__)
 
+# Ищем фразы вида "Coupon Code: ANDIRUN"
 CODE_REGEX = re.compile(
-    r"(?:COUPON|Coupon)\s*CODE[:\s]+([A-Z0-9\-]{4,30})",
+    r"(?:COUPON|Coupon)\s*CODE[:\s]+([A-Z0-9\s\-]{4,40})",
     re.I
 )
 
@@ -32,14 +31,22 @@ def init_browser() -> webdriver.Chrome:
     options.add_argument("--window-size=1920,1080")
     options.add_argument("--disable-gpu")
 
-    # ChromeDriverManager сам подберёт правильный драйвер под chrome
     service = Service(ChromeDriverManager().install())
-
     return webdriver.Chrome(service=service, options=options)
 
 
 def extract_codes(text: str) -> List[str]:
-    return list(set(m.group(1).strip().upper() for m in CODE_REGEX.finditer(text)))
+    codes: List[str] = []
+    for m in CODE_REGEX.finditer(text):
+        raw = m.group(1).strip()
+        # Берём только первое "слово" после метки (до пробела/переноса)
+        first_token = raw.split()[0]
+        # Оставляем только допустимые символы
+        code = re.sub(r"[^A-Z0-9\-]", "", first_token.upper())
+        if 4 <= len(code) <= 20:
+            codes.append(code)
+    # Убираем дубликаты
+    return list(set(codes))
 
 
 def parse_article(url: str) -> List[Dict]:
@@ -47,12 +54,12 @@ def parse_article(url: str) -> List[Dict]:
 
     browser = init_browser()
     browser.get(url)
-    time.sleep(4)  # даём JS полностью прогрузиться
+    time.sleep(4)  # ждём, пока выполнится JS
 
     soup = BeautifulSoup(browser.page_source, "html.parser")
     browser.quit()
 
-    result = []
+    result: List[Dict] = []
 
     title_tag = soup.find("h1")
     title = title_tag.get_text(strip=True) if title_tag else "No title"
@@ -69,35 +76,45 @@ def parse_article(url: str) -> List[Dict]:
             "title": title,
             "url": url,
             "date": date,
-            "found_in": "selenium-text"
+            "found_in": "selenium-text",
         })
 
     return result
 
 
+def get_archive_url_for_current_month() -> str:
+    now = datetime.utcnow()
+    year = now.year
+    month = now.month
+    # Архив вида /archive/2025/12
+    return f"{BASE_URL}/archive/{year}/{month:02d}"
+
+
 def get_promo_codes() -> List[Dict]:
-    promos = []
+    promos: List[Dict] = []
+
+    archive_url = get_archive_url_for_current_month()
+    logger.info(f"Opening archive: {archive_url}")
 
     browser = init_browser()
-    browser.get(ARCHIVE_URL)
-    time.sleep(6)  # ждём загрузку всех статей JS
+    browser.get(archive_url)
+    time.sleep(6)  # ждём загрузку JS и списка статей
 
     soup = BeautifulSoup(browser.page_source, "html.parser")
     browser.quit()
 
-    urls = []
+    urls: List[str] = []
     for a in soup.find_all("a", href=True):
         href = a["href"]
         if "/news/" in href:
             urls.append(urljoin(BASE_URL, href))
 
     urls = list(set(urls))
-    logger.info(f"📰 Found {len(urls)} articles in archive")
+    logger.info(f"📰 Found {len(urls)} articles in archive page {archive_url}")
 
     for url in urls:
         found = parse_article(url)
         promos.extend(found)
 
-    # уникальность по коду
     unique = {item["code"]: item for item in promos}
     return list(unique.values())
