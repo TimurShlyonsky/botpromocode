@@ -6,6 +6,7 @@ import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 
+
 BASE_URL = "https://www.lotro.com"
 ARCHIVE_URL = urljoin(BASE_URL, "/archive")
 HEADERS = {
@@ -51,6 +52,7 @@ def extract_codes_from_jsonld(soup: BeautifulSoup) -> List[str]:
             value = data.get(key)
             if not value or not isinstance(value, str):
                 continue
+
             found = extract_codes_from_text(value)
             codes.extend(found)
 
@@ -66,7 +68,7 @@ def parse_article(url: str) -> List[Dict]:
     result = []
 
     title_tag = soup.find("h1")
-    title = title_tag.get_text(strip=True) if title_tag else "No title"
+    title = title_tag.get_text(strip=True) if title_tag else None
 
     date_tag = soup.find("time")
     date = date_tag.get_text(strip=True) if date_tag else None
@@ -79,22 +81,20 @@ def parse_article(url: str) -> List[Dict]:
     # 1) JSON-LD
     jsonld_codes = extract_codes_from_jsonld(soup)
     if jsonld_codes:
-        logger.debug(f"Found codes in JSON-LD: {jsonld_codes}")
         codes.extend(jsonld_codes)
 
-    # 2) Article body / text
+    # 2) Article text
     article_tag = soup.find("article")
     text = article_tag.get_text(" ", strip=True) if article_tag else soup.get_text(" ", strip=True)
     body_codes = extract_codes_from_text(text)
     if body_codes:
-        logger.debug(f"Found codes in article text: {body_codes}")
         codes.extend(body_codes)
 
     # 3) Title
-    title_codes = extract_codes_from_text(title)
-    if title_codes:
-        logger.debug(f"Found codes in title: {title_codes}")
-        codes.extend(title_codes)
+    if title:
+        title_codes = extract_codes_from_text(title)
+        if title_codes:
+            codes.extend(title_codes)
 
     codes = list(set(codes))
 
@@ -111,41 +111,64 @@ def parse_article(url: str) -> List[Dict]:
     return result
 
 
-def parse_archive() -> List[str]:
+def parse_archive() -> List[Dict]:
     """
-    Запрашивает страницу архива, возвращает список URL на новости.
+    Извлекает статьи из JS-структуры window.SSG.archive.articles
     """
     html = fetch_html(ARCHIVE_URL)
     if not html:
         return []
 
-    soup = BeautifulSoup(html, "html.parser")
-    links = []
+    match = re.search(
+        r"window\.SSG\.archive\.articles\s*=\s*(\[\s*{.*?}\s*\]);",
+        html,
+        flags=re.S
+    )
+    if not match:
+        logger.error("JS articles array not found in archive page")
+        return []
 
-    # Предположим, что статьи — это <a> с href, внутри блока списка архива
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
-        # Фильтруем: только ссылки на /news/... или /archive/YYYY/MM/... (в зависимости от структуры)
-        if href.startswith("/news/") or href.startswith("/archive/"):
-            full = urljoin(BASE_URL, href)
-            links.append(full)
+    try:
+        articles_json = json.loads(match.group(1))
+    except Exception as e:
+        logger.error(f"Failed to parse archive JSON: {e}")
+        return []
 
-    unique = list(set(links))
-    return unique
+    articles = []
+    for a in articles_json:
+        url = a.get("fullUrl") or a.get("url")
+        if not url:
+            continue
+        full_url = urljoin(BASE_URL, url)
+
+        articles.append({
+            "url": full_url,
+            "title": a.get("title"),
+            "summary": a.get("summary"),
+            "date": a.get("publishDate")
+        })
+
+    return articles
 
 
 def parse_news_list() -> List[Dict]:
     promos = []
-    urls = parse_archive()
-    if not urls:
-        logger.warning("No article URLs found in archive.")
+    articles = parse_archive()
+    if not articles:
+        logger.warning("No articles found in archive.")
         return []
 
-    for url in urls:
+    for a in articles:
+        url = a["url"]
         found = parse_article(url)
         if found:
             logger.info(f"Found promo codes in {url}")
-            promos.extend(found)
+            for item in found:
+                if not item.get("title"):
+                    item["title"] = a.get("title")
+                if not item.get("date"):
+                    item["date"] = a.get("date")
+                promos.append(item)
 
     unique = {item["code"]: item for item in promos}
     return list(unique.values())
