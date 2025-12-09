@@ -40,12 +40,16 @@ def extract_codes(text: str) -> List[str]:
     for m in CODE_REGEX.finditer(text):
         raw = m.group(1).strip().upper()
 
-        # Берём только допустимые символы до первого "лишнего"
+        # допустимые символы до первого не-allowed
         m2 = re.match(r"([A-Z0-9\-]+)", raw)
         if not m2:
             continue
 
         code = m2.group(1)
+
+        # фикс бага: ANDIRUNNOW → ANDIRUN
+        if code.endswith("NOW"):
+            code = code[:-3]
 
         if 4 <= len(code) <= 20:
             codes.append(code)
