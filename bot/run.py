@@ -1,48 +1,39 @@
 import os
-from datetime import datetime
-from .parser import get_month_news, extract_promo_from_news
+from .parser import get_promo_codes
 from .send import send
 from .storage import load_codes, save_codes
 
 
 def run():
-    now = datetime.utcnow()
-    year = now.year
-    month = now.month
-
-    print(f"🚀 Checking promos for {year}-{month:02d}")
+    print("🚀 Checking promos...")
 
     stored = load_codes()
     stored_codes = {x["code"] for x in stored}
 
-    articles = get_month_news(year, month)
-    if not articles:
-        print("⚠️ No URLs this month")
+    promos = get_promo_codes()
+    if not promos:
+        print("⚠️ No promos found on the site")
         return
 
     new_items = []
 
-    for a in articles:
-        url = a["url"]
-        promos = extract_promo_from_news(url)
+    for p in promos:
+        code = p["code"]
+        title = p.get("title") or "Promo"
+        url = p.get("url")
 
-        if promos:
-            print(f"✨ Найдено в {url}: {[p['code'] for p in promos]}")
+        if code not in stored_codes:
+            print(f"✨ NEW: {code} — {url}")
+            stored_codes.add(code)
 
-        for p in promos:
-            code = p["code"]
-            if code not in stored_codes:
-                print(f"✨ NEW: {code} — {url}")
-                stored_codes.add(code)
-
-                new_items.append({
-                    "code": code,
-                    "title": a["title"],
-                    "url": url
-                })
+            new_items.append({
+                "code": code,
+                "title": title,
+                "url": url
+            })
 
     if new_items:
-        print(f"💾 Saved {len(new_items)} codes")
+        print(f"💾 Saved {len(new_items)} new codes")
         stored.extend(new_items)
         save_codes(stored)
 
