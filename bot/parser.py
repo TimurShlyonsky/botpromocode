@@ -56,8 +56,13 @@ def get_month_news(year: int, month: int) -> list[str]:
         if not href:
             continue
 
+        # Убедимся, что начинается с "/"
         if not href.startswith("/"):
             href = "/" + href
+
+        # Если нет "/news/", добавляем
+        if "/news/" not in href:
+            href = "/news" + href
 
         full_url = urljoin(BASE_URL, href)
         links.add(full_url)
@@ -86,8 +91,8 @@ def extract_promo_from_news(url: str):
         r"Coupon Code[: ]+([A-Z0-9]+)",
         r"Use Code[: ]+([A-Z0-9]+)",
         r"Use coupon code[: ]+([A-Z0-9]+)",
+        r"Coupon[: ]+([A-Z0-9]+)",
         r"Code[: ]+([A-Z0-9]+)",
-        r"Coupon[: ]+([A-Z0-9]+)"
     ]
 
     found = []
