@@ -1,4 +1,5 @@
 from datetime import date
+
 from .parser_selenium import get_promo_codes
 from .send import send
 from .storage import load_codes, save_codes
@@ -9,6 +10,7 @@ def run():
 
     today = date.today().isoformat()
 
+    # Загружаем сохранённые коды
     stored = load_codes()
     stored_map = {x["code"]: x for x in stored}
 
@@ -41,16 +43,16 @@ def run():
             stored_map[code] = item
             new_items.append(item)
 
-        # 🔁 Уже был ранее
+        # 🔁 Промокод уже был ранее
         else:
             item = stored_map[code]
 
-            # Миграция старых записей
+            # Миграция старых записей (на всякий случай)
             if "first_seen" not in item:
                 item["first_seen"] = today
                 item["times_seen"] = 1
 
-            # 🔁 Повторно актуальный
+            # Если код не встречался сегодня — считаем повторно актуальным
             if item.get("last_seen") != today:
                 print(f"🔁 REACTIVATED: {code}")
 
@@ -58,11 +60,11 @@ def run():
                 item["last_seen"] = today
                 reactivated_items.append(item)
 
-    # 💾 Сохраняем изменения
+    # 💾 Сохраняем изменения, если они есть
     if new_items or reactivated_items:
         save_codes(list(stored_map.values()))
 
-    # 📢 Отправка новых
+    # 📢 Отправляем новые промокоды
     for n in new_items:
         send(
             n["code"],
@@ -70,7 +72,7 @@ def run():
             n["url"]
         )
 
-    # 📢 Отправка повторно актуальных
+    # 📢 Отправляем повторно актуальные промокоды
     for r in reactivated_items:
         send(
             f"🔁 {r['code']}",
@@ -80,8 +82,15 @@ def run():
             f"🗓 Впервые обнаружен: {r['first_seen']}"
         )
 
+    # 🔔 Если за запуск ничего не найдено
     if not new_items and not reactivated_items:
-        print("ℹ️ No new or reactivated promos found")
+        print("🔔 No promos this week")
+
+        send(
+            "🔔",
+            "Промокоды",
+            "На этой неделе промокодов не было"
+        )
 
 
 if __name__ == "__main__":
