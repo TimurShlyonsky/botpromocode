@@ -60,6 +60,7 @@ requirements.txt
 ## 📦 Формат хранимых данных
 
 Файл promo_codes.json:
+<pre>
 [
   {
     "code": "PROMO2025",
@@ -67,6 +68,7 @@ requirements.txt
     "url": "https://example.com"
   }
 ]
+</pre>
 
 ---
 
