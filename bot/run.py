@@ -1,6 +1,6 @@
 import os
-from .parser_selenium import get_promo_codes   # ← новый импорт!
-from .send import send
+from .parser_selenium import get_promo_codes
+from .send import send, send_info
 from .storage import load_codes, save_codes
 
 
@@ -40,7 +40,11 @@ def run():
         for n in new_items:
             send(n["code"], n["title"], n["url"])
     else:
-        print("ℹ️ No new promos found")
+        print("🔔 No new promo codes detected")
+
+        # защита от спама: отправляем только в CI
+        if os.getenv("MODE") == "CI":
+            send_info("🔔 Новых промокодов — не обнаружено")
 
 
 if __name__ == "__main__":
