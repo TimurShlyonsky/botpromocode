@@ -2,7 +2,10 @@
   {
     "code": "DECTRACERY",
     "title": "Legendary Items Display Bug and Correction Steps",
-    "url": "https://www.lotro.com/news/lotro-li-issue-correction-en"
+    "url": "https://www.lotro.com/news/lotro-li-issue-correction-en",
+    "first_seen": "2025-12-26",
+    "times_seen": 2,
+    "last_seen": "2025-12-26"
   },
   {
     "code": "ANDIRUN",
@@ -17,6 +20,17 @@
   {
     "code": "WINTERSURPRISE",
     "title": "Sales: December 18th - 25th",
-    "url": "https://www.lotro.com/news/lotro-sales-121825-en"
+    "url": "https://www.lotro.com/news/lotro-sales-121825-en",
+    "first_seen": "2025-12-26",
+    "times_seen": 2,
+    "last_seen": "2025-12-26"
+  },
+  {
+    "code": "HOLIDAYRED",
+    "title": "Sales: December 25th - January 1st",
+    "url": "https://www.lotro.com/news/lotro-sales-122525-en",
+    "first_seen": "2025-12-26",
+    "last_seen": "2025-12-26",
+    "times_seen": 1
   }
 ]
