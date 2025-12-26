@@ -17,18 +17,20 @@ Telegram-бот для автоматического поиска и публи
 
 ## 🧱 Структура проекта
 
+<pre>
 bot/
-├── run.py # Основная логика запуска
-├── parser_selenium.py # Парсер сайта (Selenium)
-├── send.py # Отправка сообщений в Telegram
-├── storage.py # Работа с promo_codes.json
-├── init.py
+├── run.py                 # Основная логика запуска
+├── parser_selenium.py     # Парсер сайта (Selenium)
+├── send.py                # Отправка сообщений в Telegram
+├── storage.py             # Работа с promo_codes.json
+├── __init__.py
 data/
-├── promo_codes.json # Хранилище найденных промокодов
+├── promo_codes.json       # Хранилище найденных промокодов
 .github/
 ├── workflows/
-│ └── check.yml # GitHub Actions workflow
+│   └── check.yml          # GitHub Actions workflow
 requirements.txt
+</pre>
 
 ---
 
