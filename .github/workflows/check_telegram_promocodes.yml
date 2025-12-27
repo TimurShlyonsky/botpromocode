@@ -38,3 +38,12 @@ jobs:
           TG_CHANNEL: escapefromtarkovRU
         run: |
           python -m bot.run
+
+      - name: Save Telegram state
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "actions@github.com"
+          git add data/telegram_state.json data/promo_codes_telegram.json
+          git commit -m "Update Telegram promo state" || echo "No changes"
+          git push
+
