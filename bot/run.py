@@ -82,7 +82,7 @@ def run_telegram():
     # 🎮 Twitch Drops / внутриигровые награды
     for item in drop_items:
         send_info(
-            "🎮 В Tarkov можно залутать дропсы.\n"
+            "🎮 В Tarkov можно залутать дропсы 🎁.\n"
             f"<a href=\"{item['url']}\">Ссылка на пост</a>"
         )
 
