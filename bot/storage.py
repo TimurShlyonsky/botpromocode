@@ -1,34 +1,39 @@
 import json
 from pathlib import Path
+from typing import List, Dict
 
-DATA_PATH = Path("data/promo_codes.json")
+DEFAULT_DATA_PATH = Path("data/promo_codes.json")
 
 
-def load_codes() -> list:
+def load_codes(path: Path = DEFAULT_DATA_PATH) -> List[Dict]:
     """
-    Загружаем сохранённые коды
+    Загружаем сохранённые коды из указанного JSON-файла.
+
     Всегда возвращаем список объектов:
     [
       { "code": "...", "title": "...", "url": "...", "description": "..." }
     ]
     """
-    if DATA_PATH.exists():
+    if path.exists():
         try:
-            data = json.loads(DATA_PATH.read_text(encoding="utf-8"))
+            data = json.loads(path.read_text(encoding="utf-8"))
             if isinstance(data, list):
-                return data  # корректный формат
+                return data
         except Exception:
             pass
 
-    # если файла нет или формат сломан → создаём пустой
+    # если файла нет или формат сломан → возвращаем пустой список
     return []
 
 
-def save_codes(codes: list):
+def save_codes(codes: List[Dict], path: Path = DEFAULT_DATA_PATH) -> None:
     """
-    Сохраняем список объектов
+    Сохраняем список объектов в указанный JSON-файл.
     """
-    DATA_PATH.write_text(
+    # гарантируем, что директория data/ существует
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    path.write_text(
         json.dumps(codes, ensure_ascii=False, indent=2),
         encoding="utf-8"
     )
