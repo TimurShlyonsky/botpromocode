@@ -1,0 +1,35 @@
+name: Check Telegram promo codes
+
+on:
+  schedule:
+    - cron: "0 9 * * *"    # 11:00 Калининград
+    - cron: "0 15 * * *"   # 17:00 Калининград
+    - cron: "0 18 * * *"   # 20:00 Калининград
+  workflow_dispatch:
+
+jobs:
+  run-telegram-bot:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run Telegram promo parser
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TG_API_ID: ${{ secrets.TG_API_ID }}
+          TG_API_HASH: ${{ secrets.TG_API_HASH }}
+          TG_CHANNEL: escapefromtarkovRU
+        run: |
+          python -m bot.run
