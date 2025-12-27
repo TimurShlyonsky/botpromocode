@@ -1,47 +1,61 @@
-import os
+import asyncio
+from pathlib import Path
+
 from .parser_selenium import get_promo_codes
+from .parser_telegram import get_promo_items_from_telegram
 from .send import send, send_info
 from .storage import load_codes, save_codes
 
 
-def run():
-    print("🚀 Checking promos...")
+LOTRO_STORAGE = Path("data/promo_codes.json")
+TELEGRAM_STORAGE = Path("data/promo_codes_telegram.json")
 
-    stored = load_codes()
-    stored_codes = {x["code"] for x in stored}
 
-    promos = get_promo_codes()
-    if not promos:
-        print("⚠️ No promos found on the site")
-        return
+def process_promos(promos: list, storage_path: Path):
+    """
+    Универсальная обработка промокодов:
+    - загрузка сохранённых
+    - поиск новых
+    - сохранение
+    - отправка в Telegram
+    """
+    stored = load_codes(storage_path)
+    stored_codes = {x["code"] for x in stored if "code" in x}
 
     new_items = []
 
     for p in promos:
         code = p["code"]
-        title = p.get("title") or "Promo"
         url = p.get("url")
 
         if code not in stored_codes:
-            print(f"✨ NEW: {code} — {url}")
-            stored_codes.add(code)
-
             new_items.append({
                 "code": code,
-                "title": title,
-                "url": url
+                "url": url,
             })
 
     if new_items:
-        print(f"💾 Saved {len(new_items)} new codes")
         stored.extend(new_items)
-        save_codes(stored)
+        save_codes(stored, storage_path)
 
-        for n in new_items:
-            send(n["code"], n["title"], n["url"])
+        for item in new_items:
+            send(item["code"], "Промокод", item["url"])
     else:
-        print("🔔 No new promo codes detected")
         send_info("🔔 Новых промокодов — не обнаружено")
+
+
+def run():
+    print("🚀 Checking LOTRO promos...")
+    lotro_promos = get_promo_codes() or []
+    process_promos(lotro_promos, LOTRO_STORAGE)
+
+    print("🚀 Checking Telegram promos...")
+    try:
+        telegram_promos = asyncio.run(get_promo_items_from_telegram())
+        process_promos(telegram_promos, TELEGRAM_STORAGE)
+    except Exception as e:
+        print(f"⚠️ Telegram parser failed: {e}")
+
 
 if __name__ == "__main__":
     run()
