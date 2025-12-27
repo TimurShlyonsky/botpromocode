@@ -86,7 +86,7 @@ def run_telegram():
             f"<a href=\"{item['url']}\">Ссылка на пост</a>"
         )
 
-    if not has_new_promos and not drop_items:
+    if not has_new_promos:
         send_info("🔔 [Tarkov] Новых промокодов — не обнаружено.")
 
 
