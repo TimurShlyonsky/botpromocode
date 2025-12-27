@@ -31,7 +31,7 @@ def process_promos(promos: list, storage_path: Path) -> bool:
         save_codes(stored, storage_path)
 
         for item in new_items:
-            send(item["code"], "Промокод", item["url"])
+            send(item["code"], "Ссылка на пост", item["url"])
 
         return True
 
