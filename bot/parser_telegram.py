@@ -5,7 +5,13 @@ from pathlib import Path
 from telethon import TelegramClient
 
 STATE_PATH = Path("data/telegram_state.json")
+
 PROMO_CODE_PATTERN = re.compile(r"\b[A-Z]{6,20}\b")
+
+DROP_KEYWORDS = [
+    "twitch drops",
+    "внутриигровые награды",
+]
 
 
 def get_telegram_env():
@@ -23,6 +29,14 @@ def extract_promo_codes(text: str) -> list[str]:
     if not text:
         return []
     return PROMO_CODE_PATTERN.findall(text)
+
+
+def is_drop_announcement(text: str) -> bool:
+    """
+    Проверяем, является ли пост анонсом Twitch Drops / внутриигровых наград
+    """
+    text_lower = text.lower()
+    return any(keyword in text_lower for keyword in DROP_KEYWORDS)
 
 
 def load_last_message_id() -> int:
@@ -43,12 +57,21 @@ def save_last_message_id(message_id: int) -> None:
     )
 
 
-async def get_promo_items_from_telegram() -> list[dict]:
+async def get_promo_items_from_telegram() -> dict:
+    """
+    Возвращает:
+    {
+        "promos": [{ "code": "...", "url": "..." }],
+        "drops":  [{ "url": "..." }]
+    }
+    """
     api_id, api_hash, channel_name = get_telegram_env()
 
     last_message_id = load_last_message_id()
     max_message_id = last_message_id
-    items = []
+
+    promo_items = []
+    drop_items = []
 
     async with TelegramClient("promo_session", api_id, api_hash) as client:
         channel = await client.get_entity(channel_name)
@@ -57,15 +80,20 @@ async def get_promo_items_from_telegram() -> list[dict]:
             if not message.text:
                 continue
 
-            codes = extract_promo_codes(message.text)
-            if not codes:
-                continue
-
+            text = message.text
             post_url = f"https://t.me/{channel_name}/{message.id}"
 
+            # 🎁 Промокоды
+            codes = extract_promo_codes(text)
             for code in codes:
-                items.append({
+                promo_items.append({
                     "code": code,
+                    "url": post_url,
+                })
+
+            # 🎮 Twitch Drops / внутриигровые награды
+            if is_drop_announcement(text):
+                drop_items.append({
                     "url": post_url,
                 })
 
@@ -75,4 +103,7 @@ async def get_promo_items_from_telegram() -> list[dict]:
     if max_message_id > last_message_id:
         save_last_message_id(max_message_id)
 
-    return items
+    return {
+        "promos": promo_items,
+        "drops": drop_items,
+    }
