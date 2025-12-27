@@ -1,2 +1,14 @@
+# Telegram
 promo_session.session
+*.session
+
+# Python
 __pycache__/
+*.pyc
+
+# Env files
+.env
+
+# OS
+.DS_Store
+Thumbs.db
