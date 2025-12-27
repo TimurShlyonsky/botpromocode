@@ -29,6 +29,7 @@ jobs:
 
       - name: Run LOTRO Promo Checker
         env:
+          SOURCE: lotro
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python -m bot.run
