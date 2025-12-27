@@ -1,3 +1,4 @@
+import os
 import asyncio
 from pathlib import Path
 
@@ -12,12 +13,6 @@ TELEGRAM_STORAGE = Path("data/promo_codes_telegram.json")
 
 
 def process_promos(promos: list, storage_path: Path) -> bool:
-    """
-    Универсальная обработка промокодов.
-
-    Возвращает True, если были найдены новые промокоды,
-    иначе False.
-    """
     stored = load_codes(storage_path)
     stored_codes = {x["code"] for x in stored if "code" in x}
 
@@ -45,24 +40,30 @@ def process_promos(promos: list, storage_path: Path) -> bool:
     return False
 
 
-def run():
-    print("🚀 Checking LOTRO promos...")
-    lotro_promos = get_promo_codes() or []
-    lotro_has_new = process_promos(lotro_promos, LOTRO_STORAGE)
+def run_lotro():
+    promos = get_promo_codes() or []
+    has_new = process_promos(promos, LOTRO_STORAGE)
 
-    if not lotro_has_new:
+    if not has_new:
         send_info("🔔 [LOTRO] Новых промокодов — не обнаружено")
 
-    print("🚀 Checking Telegram promos...")
-    try:
-        telegram_promos = asyncio.run(get_promo_items_from_telegram())
-        telegram_has_new = process_promos(telegram_promos, TELEGRAM_STORAGE)
 
-        if not telegram_has_new:
-            send_info("🔔 [Tarkov] Новых промокодов — не обнаружено")
+def run_telegram():
+    promos = asyncio.run(get_promo_items_from_telegram())
+    has_new = process_promos(promos, TELEGRAM_STORAGE)
 
-    except Exception as e:
-        print(f"⚠️ Telegram parser failed: {e}")
+    if not has_new:
+        send_info("🔔 [Tarkov] Новых промокодов — не обнаружено")
+
+
+def run():
+    source = os.getenv("SOURCE", "all").lower()
+
+    if source in ("all", "lotro"):
+        run_lotro()
+
+    if source in ("all", "telegram"):
+        run_telegram()
 
 
 if __name__ == "__main__":
