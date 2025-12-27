@@ -30,6 +30,7 @@ jobs:
 
       - name: Run Telegram promo parser
         env:
+          SOURCE: telegram
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TG_API_ID: ${{ secrets.TG_API_ID }}
