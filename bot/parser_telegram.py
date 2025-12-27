@@ -6,12 +6,31 @@ from telethon import TelegramClient
 
 STATE_PATH = Path("data/telegram_state.json")
 
+DROPS_STATE_PATH = Path("data/telegram_drops_state.json")
+
 PROMO_CODE_PATTERN = re.compile(r"\b[A-Z]{6,20}\b")
 
 DROP_KEYWORDS = [
     "twitch drops",
     "внутриигровые награды",
 ]
+
+def load_last_drop_message_id() -> int:
+    if not DROPS_STATE_PATH.exists():
+        return 0
+    try:
+        data = json.loads(DROPS_STATE_PATH.read_text(encoding="utf-8"))
+        return int(data.get("last_drop_message_id", 0))
+    except Exception:
+        return 0
+
+
+def save_last_drop_message_id(message_id: int) -> None:
+    DROPS_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    DROPS_STATE_PATH.write_text(
+        json.dumps({"last_drop_message_id": message_id}, indent=2),
+        encoding="utf-8",
+    )
 
 
 def get_telegram_env():
