@@ -2,7 +2,7 @@ name: Check Telegram promo codes
 
 on:
   schedule:
-    - cron: "0 9 * * *"    # 11:00 Калининград
+    - cron: "0 9 * * *"    # 11:00 Калининград (UTC+2)
     - cron: "0 15 * * *"   # 17:00 Калининград
     - cron: "0 18 * * *"   # 20:00 Калининград
   workflow_dispatch:
@@ -23,6 +23,10 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
+
+      - name: Restore Telegram session
+        run: |
+          echo "${{ secrets.TG_SESSION }}" | base64 --decode > promo_session.session
 
       - name: Run Telegram promo parser
         env:
