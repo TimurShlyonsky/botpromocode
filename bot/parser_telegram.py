@@ -9,9 +9,10 @@ DROPS_STATE_PATH = Path("data/telegram_drops_state.json")
 
 PROMO_CODE_PATTERN = re.compile(r"\b[A-Z]{6,20}\b")
 
-DROP_KEYWORDS = [
-    "twitch drops",
-    "внутриигровые награды",
+# Строгие паттерны для дропсов (без ложных срабатываний)
+DROP_PATTERNS = [
+    re.compile(r"\btwitch\s+drops\b", re.IGNORECASE),
+    re.compile(r"\bвнутриигровые\s+награды\b", re.IGNORECASE),
 ]
 
 
@@ -39,11 +40,17 @@ def extract_promo_codes(text: str) -> list[str]:
 
 
 # --------------------
-# Drops detection
+# Drops detection (STRICT)
 # --------------------
 def is_drop_announcement(text: str) -> bool:
-    text_lower = text.lower()
-    return any(keyword in text_lower for keyword in DROP_KEYWORDS)
+    if not text:
+        return False
+
+    for pattern in DROP_PATTERNS:
+        if pattern.search(text):
+            return True
+
+    return False
 
 
 def load_last_drop_message_id() -> int:
@@ -93,7 +100,7 @@ async def get_promo_items_from_telegram() -> dict:
     Возвращает:
     {
         "promos": [{ "code": "...", "url": "..." }],
-        "drops":  [{ "url": "..." }]
+        "drops":  [{ "url": "...", "message_id": int }]
     }
     """
     api_id, api_hash, channel_name = get_telegram_env()
@@ -102,10 +109,9 @@ async def get_promo_items_from_telegram() -> dict:
     last_drop_message_id = load_last_drop_message_id()
 
     max_message_id = last_message_id
-    max_drop_message_id = last_drop_message_id
 
-    promo_items = []
-    drop_items = []
+    promo_items: list[dict] = []
+    drop_items: list[dict] = []
 
     async with TelegramClient("promo_session", api_id, api_hash) as client:
         channel = await client.get_entity(channel_name)
@@ -125,14 +131,12 @@ async def get_promo_items_from_telegram() -> dict:
                     "url": post_url,
                 })
 
-            # 🎮 Twitch Drops / внутриигровые награды (ТОЛЬКО НОВЫЕ)
+            # 🎮 Twitch Drops / внутриигровые награды (ТОЛЬКО реальные и новые)
             if is_drop_announcement(text) and message.id > last_drop_message_id:
                 drop_items.append({
                     "url": post_url,
                     "message_id": message.id,
                 })
-                if message.id > max_drop_message_id:
-                    max_drop_message_id = message.id
 
             if message.id > max_message_id:
                 max_message_id = message.id
@@ -141,9 +145,10 @@ async def get_promo_items_from_telegram() -> dict:
     if max_message_id > last_message_id:
         save_last_message_id(max_message_id)
 
-    # сохраняем state дропсов
-    if max_drop_message_id > last_drop_message_id:
-        save_last_drop_message_id(max_drop_message_id)
+    # сохраняем state дропсов ТОЛЬКО по реально уведомлённым постам
+    if drop_items:
+        newest_drop_id = max(item["message_id"] for item in drop_items)
+        save_last_drop_message_id(newest_drop_id)
 
     return {
         "promos": promo_items,
