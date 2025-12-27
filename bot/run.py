@@ -67,15 +67,26 @@ def run_lotro():
 def run_telegram():
     from .parser_telegram import get_promo_items_from_telegram
 
-    promos = asyncio.run(get_promo_items_from_telegram())
+    result = asyncio.run(get_promo_items_from_telegram())
 
-    has_new = process_promos(
-        promos,
+    promo_items = result.get("promos", [])
+    drop_items = result.get("drops", [])
+
+    # 🎁 Промокоды
+    has_new_promos = process_promos(
+        promo_items,
         TELEGRAM_STORAGE,
         default_link_title="Ссылка на пост",
     )
 
-    if not has_new:
+    # 🎮 Twitch Drops / внутриигровые награды
+    for item in drop_items:
+        send_info(
+            "🎮 В Tarkov можно залутать дропсы.\n"
+            f"<a href=\"{item['url']}\">Ссылка на пост</a>"
+        )
+
+    if not has_new_promos and not drop_items:
         send_info("🔔 [Tarkov] Новых промокодов — не обнаружено.")
 
 
