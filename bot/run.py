@@ -3,10 +3,8 @@ import asyncio
 from pathlib import Path
 
 from .parser_selenium import get_promo_codes
-from .parser_telegram import get_promo_items_from_telegram
 from .send import send, send_info
 from .storage import load_codes, save_codes
-
 
 LOTRO_STORAGE = Path("data/promo_codes.json")
 TELEGRAM_STORAGE = Path("data/promo_codes_telegram.json")
@@ -49,6 +47,9 @@ def run_lotro():
 
 
 def run_telegram():
+    # ⚠️ импорт ТОЛЬКО здесь
+    from .parser_telegram import get_promo_items_from_telegram
+
     promos = asyncio.run(get_promo_items_from_telegram())
     has_new = process_promos(promos, TELEGRAM_STORAGE)
 
@@ -59,11 +60,17 @@ def run_telegram():
 def run():
     source = os.getenv("SOURCE", "all").lower()
 
-    if source in ("all", "lotro"):
+    if source == "lotro":
         run_lotro()
+        return
 
-    if source in ("all", "telegram"):
+    if source == "telegram":
         run_telegram()
+        return
+
+    # fallback (на будущее, сейчас не используется)
+    run_lotro()
+    run_telegram()
 
 
 if __name__ == "__main__":
