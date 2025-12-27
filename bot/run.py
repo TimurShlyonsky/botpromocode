@@ -43,7 +43,7 @@ def run_lotro():
     has_new = process_promos(promos, LOTRO_STORAGE)
 
     if not has_new:
-        send_info("🔔 [LOTRO] Новых промокодов — не обнаружено")
+        send_info("🔔 [LOTRO] Новых промокодов — не обнаружено.")
 
 
 def run_telegram():
@@ -54,7 +54,7 @@ def run_telegram():
     has_new = process_promos(promos, TELEGRAM_STORAGE)
 
     if not has_new:
-        send_info("🔔 [Tarkov] Новых промокодов — не обнаружено")
+        send_info("🔔 [Tarkov] Новых промокодов — не обнаружено.")
 
 
 def run():
