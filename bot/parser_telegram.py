@@ -8,6 +8,18 @@ STATE_PATH = Path("data/telegram_state.json")
 
 PROMO_CODE_PATTERN = re.compile(r"\b[A-Z]{6,20}\b")
 
+BLACKLIST_WORDS = {
+    "NVIDIA",
+    "GIGABYTE",
+    "GEEKBOARDS",
+    "GAMING",
+    "UNNAMED",
+    "LVNDMARK",
+}
+
+def is_blacklisted_code(code: str) -> bool:
+    return code.upper() in BLACKLIST_WORDS
+
 # Строгие паттерны для дропсов
 DROP_PATTERNS = [
     re.compile(r"\btwitch\s+drops\b", re.IGNORECASE),
@@ -100,6 +112,9 @@ async def get_promo_items_from_telegram() -> dict:
 
             # 🎁 Промокоды
             for code in extract_promo_codes(text):
+                if is_blacklisted_code(code):
+                    continue
+
                 promo_items.append({
                     "code": code,
                     "url": post_url,
